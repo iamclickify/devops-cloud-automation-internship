@@ -1,1033 +1,786 @@
-# Kubernetes Fundamentals
+# Ansible Fundamentals
 
 ## Overview
 
-Kubernetes (K8s) is an open-source container orchestration platform that automates deployment, scaling, and management of containerized applications across clusters of machines at scale.
+Ansible is an agentless, open-source automation and configuration management platform that simplifies IT operations through declarative automation. It enables infrastructure provisioning, application deployment, and configuration management at scale without requiring agents on target machines.
 
 ---
 
 ## Table of Contents
 
-1. [What is Kubernetes](#what-is-kubernetes)
-2. [Architecture](#architecture)
-3. [Core Objects](#core-objects)
-4. [Pods](#pods)
-5. [Controllers](#controllers)
-6. [Services & Networking](#services--networking)
-7. [Storage](#storage)
-8. [ConfigMaps & Secrets](#configmaps--secrets)
-9. [Namespaces & RBAC](#namespaces--rbac)
-10. [Deployments](#deployments)
-11. [Best Practices](#best-practices)
+1. [What is Ansible](#what-is-ansible)
+2. [Core Concepts](#core-concepts)
+3. [Architecture](#architecture)
+4. [Inventory](#inventory)
+5. [Playbooks](#playbooks)
+6. [Modules](#modules)
+7. [Variables & Facts](#variables--facts)
+8. [Handlers & Conditionals](#handlers--conditionals)
+9. [Roles](#roles)
+10. [Best Practices](#best-practices)
 
 ---
 
-## What is Kubernetes
+## What is Ansible
 
 ### Definition
 
-**Kubernetes** is a container orchestration platform that manages containerized applications across a cluster of machines, automating deployment, scaling, and operational tasks.
+**Ansible** is an infrastructure automation tool that uses simple YAML-based playbooks to configure systems, deploy software, and orchestrate complex IT tasks across any number of servers.
 
-### Why Kubernetes?
+### Key Characteristics
 
-| Challenge | Solution |
-|-----------|----------|
-| **Scaling containers** | Automatic scaling based on demand |
-| **High availability** | Self-healing, redundancy |
-| **Resource management** | Optimal resource utilization |
-| **Rolling updates** | Zero-downtime deployments |
-| **Service discovery** | Automatic DNS, load balancing |
-| **Storage** | Persistent volume management |
-| **Configuration** | Centralized config/secrets |
+✅ **Agentless** - No software required on target machines (SSH-based)  
+✅ **Idempotent** - Safe to run multiple times  
+✅ **Declarative** - Describe desired state, not steps  
+✅ **Simple syntax** - YAML-based, human-readable  
+✅ **Agentless** - Uses standard protocols (SSH, WinRM)  
+✅ **Extensible** - Custom modules and plugins  
+✅ **Cross-platform** - Works on Linux, Windows, cloud, network devices  
 
-### Key Features
+### Why Ansible?
 
-✅ **Automated deployment** - Deploy containers where needed  
-✅ **Self-healing** - Restart failed containers, replace dead nodes  
-✅ **Horizontal scaling** - Scale up/down based on metrics  
-✅ **Rolling updates** - Update without downtime  
-✅ **Service discovery** - DNS-based service location  
-✅ **Load balancing** - Automatic load distribution  
-✅ **Storage orchestration** - Mount storage systems  
-✅ **Resource management** - CPU/memory constraints  
+| Use Case | Benefit |
+|----------|---------|
+| **Configuration Management** | Ensure consistent system configuration |
+| **Application Deployment** | Automate application rollout |
+| **Provisioning** | Automatically set up infrastructure |
+| **Orchestration** | Coordinate complex multi-system changes |
+| **Cloud Management** | Work across AWS, Azure, GCP, etc. |
+| **Network Automation** | Manage network devices |
 
-### Use Cases
+---
 
-✅ Microservices architectures  
-✅ Multi-cloud deployments  
-✅ High-availability applications  
-✅ Stateless applications  
-✅ Batch jobs  
-✅ CI/CD pipelines  
+## Core Concepts
+
+### Control Node
+
+**Machine where Ansible runs**
+
+Requirements:
+- Python 2.7+ or Python 3.5+
+- SSH client (for Linux/Unix targets)
+- Ansible package installed
+
+```bash
+# Install Ansible
+pip install ansible
+
+# Verify installation
+ansible --version
+```
+
+### Managed Nodes
+
+**Target machines to be automated**
+
+Requirements:
+- ✅ SSH access (Linux/Unix)
+- ✅ WinRM access (Windows)
+- ✅ Python 2.6+ or Python 3.5+ (for most modules)
+- ✅ Sudo access (for privileged operations)
+
+**No Ansible software needed!**
+
+### Plays & Playbooks
+
+**Play**: Single configuration unit applying to specific hosts
+
+**Playbook**: Collection of plays (YAML file)
+
+```yaml
+---
+# This is a playbook with one play
+- name: Configure web servers
+  hosts: webservers
+  become: yes
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+```
+
+### Tasks & Modules
+
+**Task**: Individual unit of work using a module
+
+**Module**: Ansible's building block; reusable code doing specific work
+
+```yaml
+- name: Install nginx
+  apt:                    # Module name
+    name: nginx           # Module argument
+    state: present        # Module argument
+```
+
+### Handlers
+
+**Special tasks triggered by other tasks**
+
+```yaml
+- name: Install nginx
+  apt:
+    name: nginx
+    state: present
+  notify: Restart nginx   # Trigger handler
+
+handlers:
+- name: Restart nginx
+  service:
+    name: nginx
+    state: restarted
+```
 
 ---
 
 ## Architecture
 
-### Cluster Components
+### Ansible Execution Flow
 
 ```
-┌─────────────────────────────────────────┐
-│         Kubernetes Cluster              │
+┌────────────┐
+│  Control   │
+│   Node     │
+│            │
+│ • Ansible  │
+│ • Python   │
+│ • Modules  │
+└─────┬──────┘
+      │ SSH/WinRM
+      │
+┌─────┴──────────────────────────────────┐
 │                                         │
-│  ┌──────────────────────────────────┐  │
-│  │    Control Plane (Master)        │  │
-│  │                                  │  │
-│  │  • API Server                    │  │
-│  │  • Scheduler                     │  │
-│  │  • Controller Manager            │  │
-│  │  • etcd (State Store)            │  │
-│  └──────────────────────────────────┘  │
+│    Managed Nodes (No agent needed)     │
 │                                         │
-│  ┌──────────┬──────────┬──────────┐   │
-│  │  Worker  │  Worker  │  Worker  │   │
-│  │  Node 1  │  Node 2  │  Node 3  │   │
-│  │          │          │          │   │
-│  │ kubelet  │ kubelet  │ kubelet  │   │
-│  │ kube-   │ kube-   │ kube-   │   │
-│  │ proxy   │ proxy   │ proxy   │   │
-│  │          │          │          │   │
-│  │ Pods     │ Pods     │ Pods     │   │
-│  └──────────┴──────────┴──────────┘   │
+│  ┌──────────────┐  ┌──────────────┐   │
+│  │   Server 1   │  │   Server 2   │   │
+│  │  • Linux     │  │  • Windows   │   │
+│  │  • Python    │  │  • Python    │   │
+│  └──────────────┘  └──────────────┘   │
+│                                         │
 └─────────────────────────────────────────┘
 ```
 
-### Control Plane Components
+### Connection Methods
 
-| Component | Purpose |
-|-----------|---------|
-| **API Server** | Central hub, handles all API requests |
-| **Scheduler** | Assigns pods to nodes |
-| **Controller Manager** | Runs controller processes |
-| **etcd** | Key-value store for cluster state |
-| **Cloud Controller Manager** | Integrates with cloud providers |
+| Method | Protocol | Use Case |
+|--------|----------|----------|
+| **ssh** | SSH | Linux/Unix remote execution |
+| **local** | Local | Run on control node |
+| **winrm** | WinRM | Windows remote execution |
+| **docker** | Docker | Run in containers |
+| **raw** | Minimal | Basic commands |
 
-### Worker Node Components
+---
 
-| Component | Purpose |
-|-----------|---------|
-| **kubelet** | Agent running on every node |
-| **kube-proxy** | Network proxy, load balancing |
-| **Container Runtime** | Docker, containerd, CRI-O |
+## Inventory
 
-### Control Plane vs Worker Nodes
+### What is Inventory?
 
+**File listing all hosts/machines** Ansible can manage
+
+### Inventory Formats
+
+**INI Format**:
+```ini
+[webservers]
+web1.example.com
+web2.example.com ansible_user=ubuntu
+
+[databases]
+db1.example.com ansible_host=192.168.1.10
+db2.example.com ansible_host=192.168.1.11
+
+[databases:vars]
+ansible_user=admin
+ansible_port=22
 ```
-┌─────────────────────────────────────────┐
-│    Control Plane (Single or HA)         │
-│  • API Server                           │
-│  • Scheduler                            │
-│  • Controller Manager                   │
-│  • etcd (state database)                │
-│                                         │
-│  Responsibilities:                      │
-│  • Cluster decisions                    │
-│  • State management                     │
-│  • Deployment scheduling                │
-└─────────────────────────────────────────┘
-           ↓ (API Requests)
-┌─────────────────────────────────────────┐
-│    Worker Nodes (Many)                  │
-│  • kubelet                              │
-│  • kube-proxy                           │
-│  • Container runtime                    │
-│  • Running pods                         │
-│                                         │
-│  Responsibilities:                      │
-│  • Execute containers                   │
-│  • Report node health                   │
-│  • Handle networking                    │
-└─────────────────────────────────────────┘
+
+**YAML Format**:
+```yaml
+all:
+  children:
+    webservers:
+      hosts:
+        web1.example.com:
+        web2.example.com:
+          ansible_user: ubuntu
+    databases:
+      hosts:
+        db1.example.com:
+          ansible_host: 192.168.1.10
+      vars:
+        ansible_user: admin
+        ansible_port: 22
+```
+
+### Inventory Variables
+
+**Host Variables**:
+```ini
+web1.example.com ansible_user=ubuntu ansible_port=2222
+```
+
+**Group Variables**:
+```ini
+[webservers:vars]
+ansible_user=ubuntu
+ansible_port=22
+nginx_port=80
+```
+
+**Special Variables**:
+- `ansible_host` - IP/hostname
+- `ansible_port` - SSH port
+- `ansible_user` - Remote user
+- `ansible_password` - Password (use vault!)
+- `ansible_become` - Enable privilege escalation
+- `ansible_become_method` - sudo, su, etc.
+
+### Dynamic Inventory
+
+**Inventory from external sources**:
+
+```python
+#!/usr/bin/env python
+import json
+
+inventory = {
+    "webservers": {
+        "hosts": ["192.168.1.1", "192.168.1.2"],
+        "vars": {
+            "ansible_user": "ubuntu"
+        }
+    },
+    "_meta": {
+        "hostvars": {}
+    }
+}
+
+print(json.dumps(inventory))
 ```
 
 ---
 
-## Core Objects
+## Playbooks
 
-### Kubernetes Objects
-
-**Objects** are persistent entities in Kubernetes system, representing cluster state
-
-### Object Anatomy
+### Playbook Structure
 
 ```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: my-pod
-  namespace: default
-  labels:
-    app: myapp
-    version: v1
-spec:
-  # Object specification (desired state)
-  containers:
-  - name: mycontainer
-    image: myimage:latest
-status:
-  # Current state (filled by Kubernetes)
-  phase: Running
-  conditions:
-  - type: Ready
-    status: "True"
+---
+- name: Deploy web application
+  hosts: webservers
+  become: yes
+  gather_facts: yes
+  vars:
+    app_port: 8080
+    app_user: appuser
+  
+  pre_tasks:
+    - name: Pre-deployment task
+      debug:
+        msg: "Starting deployment"
+  
+  tasks:
+    - name: Install dependencies
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - git
+        - python3
+        - python3-pip
+    
+    - name: Clone repository
+      git:
+        repo: https://github.com/example/app.git
+        dest: /opt/app
+        version: main
+    
+    - name: Install Python packages
+      pip:
+        requirements: /opt/app/requirements.txt
+        executable: pip3
+  
+  post_tasks:
+    - name: Post-deployment task
+      debug:
+        msg: "Deployment complete"
+  
+  handlers:
+    - name: Restart service
+      service:
+        name: myapp
+        state: restarted
 ```
 
-### Key Fields
+### Playbook Sections
 
-| Field | Purpose |
-|-------|---------|
-| **apiVersion** | API version (v1, apps/v1, etc.) |
-| **kind** | Object type (Pod, Deployment, etc.) |
-| **metadata** | Object metadata (name, labels, namespace) |
-| **spec** | Desired state |
-| **status** | Current state (read-only) |
+| Section | Purpose | When Runs |
+|---------|---------|-----------|
+| **pre_tasks** | Initial setup | Before main tasks |
+| **tasks** | Main work | After pre_tasks |
+| **post_tasks** | Cleanup | After tasks |
+| **handlers** | Triggered actions | When notified |
 
-### Common Objects
+### Common Playbook Directives
 
-| Object | Purpose |
+```yaml
+- name: Example play
+  hosts: webservers           # Target hosts
+  become: yes                 # Run as root
+  become_user: www-data       # Run as specific user
+  gather_facts: yes           # Collect host facts
+  serial: 1                   # Run one host at a time
+  max_fail_percentage: 10     # Max failure %
+  vars:                       # Play variables
+    my_var: value
+  tags:                       # Label tasks
+    - deploy
+    - important
+```
+
+---
+
+## Modules
+
+### What are Modules?
+
+**Modules** are Ansible's core tools - reusable scripts doing specific work
+
+### Common Modules
+
+| Module | Purpose |
 |--------|---------|
-| **Pod** | Smallest deployable unit |
-| **Deployment** | Manage pod replicas |
-| **Service** | Network access to pods |
-| **ConfigMap** | Configuration data |
-| **Secret** | Sensitive data |
-| **Namespace** | Virtual cluster isolation |
-| **PersistentVolume** | Storage resource |
-| **Ingress** | HTTP/HTTPS routing |
+| **apt/yum** | Install packages |
+| **service** | Manage services |
+| **copy** | Copy files |
+| **template** | Deploy template files |
+| **user** | Manage users |
+| **file** | Manage files/directories |
+| **command/shell** | Execute commands |
+| **debug** | Output information |
+| **git** | Clone repositories |
+| **docker_container** | Manage containers |
+| **aws_ec2** | Manage AWS resources |
+| **lineinfile** | Modify file lines |
+| **block** | Group tasks |
 
----
+### Module Examples
 
-## Pods
-
-### What is a Pod?
-
-**Pod** is the smallest deployable Kubernetes object - wraps one or more containers
-
-**Characteristics**:
-- Shared network namespace (single IP)
-- Shared storage (volumes)
-- Container specifications
-- Restart policy
-- Resource requests/limits
-
-### Single-Container Pod
-
+**Package Installation**:
 ```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx-pod
-spec:
-  containers:
-  - name: nginx
-    image: nginx:1.21
-    ports:
-    - containerPort: 80
+- name: Install packages
+  apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - nginx
+    - curl
+    - git
 ```
 
-### Multi-Container Pod
-
+**Service Management**:
 ```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: web-app
-spec:
-  containers:
-  # Main application
-  - name: app
-    image: myapp:latest
-    ports:
-    - containerPort: 8080
-    volumeMounts:
-    - name: shared-data
-      mountPath: /var/shared
-  
-  # Sidecar: logging
-  - name: logging
-    image: fluent-bit:latest
-    volumeMounts:
-    - name: shared-data
-      mountPath: /var/shared
-  
-  # Shared storage
-  volumes:
-  - name: shared-data
-    emptyDir: {}
+- name: Start and enable nginx
+  service:
+    name: nginx
+    state: started
+    enabled: yes
 ```
 
-### Pod Lifecycle
-
-```
-Pending → Running → Succeeded/Failed/Unknown
-
-Pending: Pod accepted, waiting for resources
-Running: Container(s) executing
-Succeeded: All containers exited successfully
-Failed: At least one container failed
-Unknown: Pod state unknown
-```
-
-### Pod Probe Types
-
-**Liveness Probe** - Is container alive?
+**File Operations**:
 ```yaml
-livenessProbe:
-  httpGet:
-    path: /health
-    port: 8080
-  initialDelaySeconds: 30
-  periodSeconds: 10
+- name: Create directory
+  file:
+    path: /opt/app
+    state: directory
+    owner: appuser
+    group: appuser
+    mode: '0755'
 ```
 
-**Readiness Probe** - Can receive traffic?
+**Execute Commands**:
 ```yaml
-readinessProbe:
-  httpGet:
-    path: /ready
-    port: 8080
-  initialDelaySeconds: 5
-  periodSeconds: 5
+- name: Run custom script
+  shell: /opt/scripts/deploy.sh
+  args:
+    executable: /bin/bash
 ```
 
-**Startup Probe** - Has app started?
+**Template Deployment**:
 ```yaml
-startupProbe:
-  httpGet:
-    path: /startup
-    port: 8080
-  initialDelaySeconds: 0
-  periodSeconds: 10
-```
-
----
-
-## Controllers
-
-### What are Controllers?
-
-**Controllers** are control loops that manage Kubernetes objects, ensuring current state matches desired state
-
-### Deployment
-
-**Purpose**: Manage pod replicas, rolling updates, rollbacks
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-deployment
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: nginx
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1        # 1 extra pod during update
-      maxUnavailable: 0  # 0 pods unavailable
+- name: Deploy config file
   template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:1.21
-        ports:
-        - containerPort: 80
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "250m"
-          limits:
-            memory: "128Mi"
-            cpu: "500m"
-```
-
-### StatefulSet
-
-**Purpose**: Manage stateful applications (databases, caches)
-
-**Characteristics**:
-- Stable network identity
-- Ordered scaling
-- Persistent storage
-- Graceful scaling
-
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: mysql
-spec:
-  replicas: 3
-  serviceName: mysql-service
-  selector:
-    matchLabels:
-      app: mysql
-  template:
-    metadata:
-      labels:
-        app: mysql
-    spec:
-      containers:
-      - name: mysql
-        image: mysql:8.0
-        ports:
-        - containerPort: 3306
-          name: mysql
-  volumeClaimTemplates:
-  - metadata:
-      name: mysql-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: "fast-ssd"
-      resources:
-        requests:
-          storage: 10Gi
-```
-
-### DaemonSet
-
-**Purpose**: Run pod on every (or selected) node
-
-```yaml
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: node-exporter
-spec:
-  selector:
-    matchLabels:
-      app: node-exporter
-  template:
-    metadata:
-      labels:
-        app: node-exporter
-    spec:
-      containers:
-      - name: node-exporter
-        image: prom/node-exporter:latest
-        ports:
-        - containerPort: 9100
-```
-
-### Job & CronJob
-
-**Job**: Run to completion once
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: backup-job
-spec:
-  template:
-    spec:
-      containers:
-      - name: backup
-        image: backup-tool:latest
-        command: ["./backup.sh"]
-      restartPolicy: Never
-  backoffLimit: 3
-```
-
-**CronJob**: Run on schedule
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: daily-backup
-spec:
-  schedule: "0 2 * * *"  # 2 AM daily
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: backup
-            image: backup-tool:latest
-          restartPolicy: OnFailure
+    src: nginx.conf.j2      # Source template
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx
 ```
 
 ---
 
-## Services & Networking
+## Variables & Facts
 
-### What is a Service?
+### Variable Types
 
-**Service** exposes pods to network traffic, providing stable endpoint
-
-### Service Types
-
-| Type | Purpose | Use Case |
-|------|---------|----------|
-| **ClusterIP** | Internal cluster access | Inter-pod communication |
-| **NodePort** | External access via node port | Development, testing |
-| **LoadBalancer** | External load balancer | Production, public apps |
-| **ExternalName** | DNS mapping | External services |
-
-### ClusterIP Service
-
+**Play Variables**:
 ```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-service
-spec:
-  type: ClusterIP
-  selector:
-    app: web
-  ports:
-  - protocol: TCP
-    port: 80           # Service port
-    targetPort: 8080   # Pod port
+- name: Example
+  hosts: all
+  vars:
+    app_name: myapp
+    app_port: 8080
+  tasks:
+    - name: Print var
+      debug:
+        msg: "App {{ app_name }} runs on {{ app_port }}"
 ```
 
-**Access**: `http://web-service:80` within cluster
-
-### NodePort Service
-
+**Variables File** (vars/main.yml):
 ```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-service
-spec:
-  type: NodePort
-  selector:
-    app: web
-  ports:
-  - port: 80
-    targetPort: 8080
-    nodePort: 30080    # External port (30000-32767)
-```
-
-**Access**: `http://node-ip:30080` from outside
-
-### LoadBalancer Service
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-service
-spec:
-  type: LoadBalancer
-  selector:
-    app: web
-  ports:
-  - port: 80
-    targetPort: 8080
-```
-
-**Access**: Cloud provider assigns external IP
-
-### Ingress
-
-**Purpose**: HTTP/HTTPS routing rules
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: web-ingress
-spec:
-  rules:
-  - host: example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: web-service
-            port:
-              number: 80
-  - host: api.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: api-service
-            port:
-              number: 8080
-```
-
-### Network Policies
-
-**Control pod-to-pod communication**
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-web
-spec:
-  podSelector:
-    matchLabels:
-      app: web
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: client
-    ports:
-    - protocol: TCP
-      port: 80
-```
-
 ---
-
-## Storage
-
-### PersistentVolume (PV)
-
-**Cluster-level storage resource**
-
-```yaml
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: pv-aws
-spec:
-  capacity:
-    storage: 10Gi
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  awsElasticBlockStore:
-    volumeID: vol-1234567890abcdef0
-    fsType: ext4
+app_name: myapp
+app_port: 8080
+database_host: db.example.com
 ```
 
-### PersistentVolumeClaim (PVC)
-
-**Request for storage**
-
+**Load Variables**:
 ```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: data-claim
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: standard
+- name: Load variables
+  hosts: all
+  vars_files:
+    - vars/main.yml
+    - vars/{{ ansible_os_family }}.yml
+  tasks:
+    - debug:
+        msg: "{{ app_name }}"
 ```
 
-### Using PVC in Pods
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: app-with-storage
-spec:
-  containers:
-  - name: app
-    image: myapp:latest
-    volumeMounts:
-    - name: data
-      mountPath: /data
-  volumes:
-  - name: data
-    persistentVolumeClaim:
-      claimName: data-claim
-```
-
-### Storage Classes
-
-**Dynamic provisioning template**
-
-```yaml
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: fast-ssd
-provisioner: kubernetes.io/aws-ebs
-parameters:
-  type: gp3
-  iops: "3000"
-  throughput: "125"
-allowVolumeExpansion: true
-```
-
----
-
-## ConfigMaps & Secrets
-
-### ConfigMap
-
-**Store non-sensitive configuration**
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: app-config
-data:
-  app.properties: |
-    database.host=db.example.com
-    database.port=5432
-  log_level: "INFO"
-```
-
-**Using in Pod**:
-```yaml
-spec:
-  containers:
-  - name: app
-    image: myapp:latest
-    env:
-    - name: LOG_LEVEL
-      valueFrom:
-        configMapKeyRef:
-          name: app-config
-          key: log_level
-    volumeMounts:
-    - name: config
-      mountPath: /etc/config
-  volumes:
-  - name: config
-    configMap:
-      name: app-config
-```
-
-### Secret
-
-**Store sensitive data (encrypted at rest)**
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: db-credentials
-type: Opaque
-data:
-  username: dXNlcm5hbWU=  # base64 encoded
-  password: cGFzc3dvcmQ=  # base64 encoded
-```
-
-**Using in Pod**:
-```yaml
-spec:
-  containers:
-  - name: app
-    image: myapp:latest
-    env:
-    - name: DB_USER
-      valueFrom:
-        secretKeyRef:
-          name: db-credentials
-          key: username
-    - name: DB_PASS
-      valueFrom:
-        secretKeyRef:
-          name: db-credentials
-          key: password
-```
-
-### Secret Types
-
-| Type | Purpose |
-|------|---------|
-| **Opaque** | General base64 data |
-| **kubernetes.io/service-account-token** | Service account token |
-| **kubernetes.io/dockercfg** | Docker config |
-| **kubernetes.io/basicauth** | Basic auth credentials |
-| **kubernetes.io/tls** | TLS certificate |
-
----
-
-## Namespaces & RBAC
-
-### Namespaces
-
-**Virtual cluster isolation**
-
+**Command-Line Variables**:
 ```bash
-# Create namespace
-kubectl create namespace production
-
-# List namespaces
-kubectl get namespaces
-
-# Use namespace
-kubectl get pods -n production
-kubectl apply -f deploy.yaml -n production
-
-# Set default namespace
-kubectl config set-context --current --namespace=production
+ansible-playbook playbook.yml -e "app_name=myapp app_port=8080"
 ```
 
-**In YAML**:
+### Facts
+
+**System information** gathered from hosts
+
 ```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: myapp
-  namespace: production  # Specify namespace
-spec:
-  containers:
-  - name: app
-    image: myapp:latest
+- name: Show facts
+  hosts: all
+  tasks:
+    - name: Print IP address
+      debug:
+        msg: "IP: {{ ansible_default_ipv4.address }}"
+    
+    - name: Print OS
+      debug:
+        msg: "OS: {{ ansible_os_family }}"
 ```
 
-### Role-Based Access Control (RBAC)
+**Common Facts**:
+- `ansible_os_family` - OS type (Debian, RedHat, etc.)
+- `ansible_distribution` - Distribution name (Ubuntu, CentOS)
+- `ansible_default_ipv4.address` - IP address
+- `ansible_hostname` - Hostname
+- `ansible_processor_vcpus` - CPU count
+- `ansible_memtotal_mb` - Total memory
 
-**Principles**:
-- ServiceAccount
-- Role (permissions)
-- RoleBinding (connect account to role)
-
-**Example RBAC**:
+**Disable fact gathering**:
 ```yaml
-# ServiceAccount
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: app-sa
-  namespace: default
-
----
-# Role with permissions
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: pod-reader
-spec:
-  rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
-
----
-# RoleBinding connects ServiceAccount to Role
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: read-pods
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pod-reader
-subjects:
-- kind: ServiceAccount
-  name: app-sa
+- name: Fast playbook
+  hosts: all
+  gather_facts: no
+  tasks:
+    - debug:
+        msg: "No facts needed"
 ```
 
 ---
 
-## Deployments
+## Handlers & Conditionals
 
-### Deployment Strategy
+### Handlers
 
-**Rolling Update**:
+**Tasks triggered by notifications**
+
 ```yaml
-spec:
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1        # Extra pods during update
-      maxUnavailable: 0  # Minimum pods available
+- name: Install and configure nginx
+  hosts: webservers
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+      notify: Restart nginx
+    
+    - name: Deploy config
+      copy:
+        src: nginx.conf
+        dest: /etc/nginx/nginx.conf
+      notify: Restart nginx
+  
+  handlers:
+    - name: Restart nginx
+      service:
+        name: nginx
+        state: restarted
 ```
 
-**Blue-Green**:
+**Handler Run Order**:
+- Handlers run at end of play
+- Each handler runs once (deduplicated)
+- Execute in order defined
+
+### Conditionals
+
+**when Statement** - Execute task conditionally
+
 ```yaml
-# Deploy new version (green)
-# Test it
-# Switch traffic
-# Remove old version (blue)
+- name: Install if Debian
+  apt:
+    name: nginx
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Install if not installed
+  apt:
+    name: nginx
+    state: present
+  when: '"nginx" not in ansible_facts.packages'
+
+- name: Install if variable set
+  apt:
+    name: "{{ package }}"
+    state: present
+  when: package is defined
+
+- name: Multiple conditions (AND)
+  service:
+    name: nginx
+    state: restarted
+  when:
+    - ansible_os_family == "Debian"
+    - nginx_installed | bool
 ```
 
-**Canary**:
+### Loops
+
+**Repeat tasks multiple times**
+
 ```yaml
-# Deploy to small subset
-# Monitor metrics
-# Gradually increase traffic
-# Full rollout on success
+# Simple loop
+- name: Install packages
+  apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - nginx
+    - curl
+    - git
+
+# Loop over list variable
+- name: Create users
+  user:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ users }}"
+
+# Loop with index
+- name: Configure services
+  service:
+    name: "{{ item.name }}"
+    port: "{{ item.port }}"
+    enabled: yes
+  loop:
+    - { name: nginx, port: 80 }
+    - { name: postgresql, port: 5432 }
 ```
 
-### Common Deployment Commands
+---
 
-```bash
-# View deployment
-kubectl get deployments
-kubectl describe deployment nginx-deployment
+## Roles
 
-# Scale deployment
-kubectl scale deployment nginx-deployment --replicas=5
+### What are Roles?
 
-# Update image
-kubectl set image deployment/nginx-deployment nginx=nginx:1.22
+**Roles** organize related tasks, files, templates, and variables into reusable packages
 
-# Rollout history
-kubectl rollout history deployment/nginx-deployment
+### Role Structure
 
-# Rollback to previous
-kubectl rollout undo deployment/nginx-deployment
-
-# Pause/resume rollout
-kubectl rollout pause deployment/nginx-deployment
-kubectl rollout resume deployment/nginx-deployment
 ```
+roles/
+├── webserver/
+│   ├── tasks/
+│   │   └── main.yml          # Tasks
+│   ├── handlers/
+│   │   └── main.yml          # Handlers
+│   ├── templates/
+│   │   └── nginx.conf.j2     # Jinja2 templates
+│   ├── files/
+│   │   └── app.conf          # Static files
+│   ├── vars/
+│   │   └── main.yml          # Role variables
+│   ├── defaults/
+│   │   └── main.yml          # Default variables
+│   ├── meta/
+│   │   └── main.yml          # Role metadata
+│   └── README.md             # Documentation
+```
+
+### Using Roles
+
+```yaml
+---
+- name: Deploy web application
+  hosts: webservers
+  roles:
+    - role: webserver
+      vars:
+        nginx_port: 8080
+    - role: monitoring
+```
+
+### Role Best Practices
+
+✅ **Single responsibility** - One role per function  
+✅ **Reusable** - Work across projects  
+✅ **Well documented** - README and examples  
+✅ **Parameterized** - Use variables for flexibility  
+✅ **Tested** - Validate with different configurations  
 
 ---
 
 ## Best Practices
 
+### Playbook Organization
+
+✅ **Use roles** - Structure complex playbooks  
+✅ **Clear naming** - Descriptive task/role names  
+✅ **Comments** - Explain complex logic  
+✅ **Variables** - Externalize configuration  
+✅ **Tags** - Allow selective execution  
+
+### Idempotency
+
+✅ **Design for idempotency** - Safe to run repeatedly  
+✅ **Use state parameters** - present, absent, etc.  
+✅ **Check before creating** - Avoid unnecessary changes  
+
 ### Security
 
-✅ **Use non-root containers** - Run with least privilege  
-✅ **Image scanning** - Check for vulnerabilities  
-✅ **Network policies** - Restrict pod communication  
-✅ **RBAC** - Implement least privilege access  
-✅ **Secrets management** - Use external vaults  
-✅ **Pod security policies** - Enforce standards  
+✅ **Use vault** - Encrypt sensitive data
+```bash
+ansible-vault encrypt vars/secrets.yml
+ansible-playbook playbook.yml --ask-vault-pass
+```
 
-### Resource Management
+✅ **Avoid passwords** - Use SSH keys  
+✅ **Limit access** - Restrict user permissions  
+✅ **Audit changes** - Log all modifications  
 
-✅ **Set resource requests** - CPU, memory guarantees  
-✅ **Set resource limits** - CPU, memory caps  
-✅ **Use namespaces** - Logical isolation  
-✅ **Implement quotas** - Limit namespace resources  
-✅ **Use HPA** - Horizontal Pod Autoscaling  
+### Performance
 
-### Deployment
+✅ **Parallel execution** - Use `forks`  
+✅ **Gather facts selectively** - Only when needed  
+✅ **Use include** - Load playbooks conditionally  
+✅ **Cache facts** - Reuse system information  
 
-✅ **Health checks** - Liveness, readiness, startup  
-✅ **Graceful shutdown** - Handle SIGTERM  
-✅ **Rolling updates** - Zero-downtime deploys  
-✅ **Version everything** - Container images, manifests  
-✅ **Use GitOps** - Store K8s configs in Git  
+### Testing
 
-### Monitoring & Logging
+✅ **Dry-run** - Check before applying
+```bash
+ansible-playbook playbook.yml --check
+```
 
-✅ **Prometheus** - Metrics collection  
-✅ **Grafana** - Metrics visualization  
-✅ **ELK/Loki** - Log aggregation  
-✅ **Alerts** - Proactive notifications  
-✅ **Resource monitoring** - Track utilization  
+✅ **Syntax check** - Validate YAML
+```bash
+ansible-playbook playbook.yml --syntax-check
+```
 
-### Organization
-
-✅ **Clear naming** - Descriptive resource names  
-✅ **Labels & annotations** - Organize resources  
-✅ **Documentation** - README for deployments  
-✅ **Kustomize/Helm** - Template management  
-✅ **Environment parity** - Dev/staging/prod consistency  
+✅ **Test in staging** - Before production  
 
 ---
 
 ## Quick Reference
 
-### Essential Commands
+### Common Commands
 
 ```bash
-# Context & cluster
-kubectl cluster-info
-kubectl config current-context
-kubectl config use-context cluster-name
+# Ping hosts
+ansible all -i inventory.ini -m ping
 
-# Namespaces
-kubectl get namespaces
-kubectl create namespace prod
-kubectl get pods -n prod
+# Gather facts
+ansible webservers -i inventory.ini -m setup
 
-# Deployments
-kubectl get deployments
-kubectl apply -f deployment.yaml
-kubectl rollout status deployment/myapp
-kubectl rollout undo deployment/myapp
+# Run playbook
+ansible-playbook playbook.yml -i inventory.ini
 
-# Pods
-kubectl get pods
-kubectl describe pod pod-name
-kubectl logs pod-name
-kubectl exec -it pod-name -- /bin/sh
+# Dry run
+ansible-playbook playbook.yml -i inventory.ini --check
 
-# Services
-kubectl get svc
-kubectl port-forward svc/my-service 8080:80
+# Run specific tags
+ansible-playbook playbook.yml --tags "deploy"
 
-# Scaling
-kubectl scale deployment myapp --replicas=5
+# Run with extra variables
+ansible-playbook playbook.yml -e "env=prod"
+
+# Show verbose output
+ansible-playbook playbook.yml -v
 ```
 
-### YAML Templates
+### Playbook Template
 
 ```yaml
-# Deployment template
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: myapp
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: myapp
-  template:
-    metadata:
-      labels:
-        app: myapp
-    spec:
-      containers:
-      - name: myapp
-        image: myapp:latest
-        ports:
-        - containerPort: 8080
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "250m"
-          limits:
-            memory: "128Mi"
-            cpu: "500m"
-
 ---
-# Service template
-apiVersion: v1
-kind: Service
-metadata:
-  name: myapp-service
-spec:
-  type: ClusterIP
-  selector:
-    app: myapp
-  ports:
-  - port: 80
-    targetPort: 8080
+- name: Configure servers
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    app_name: myapp
+  
+  tasks:
+    - name: Update packages
+      apt:
+        update_cache: yes
+    
+    - name: Install dependencies
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - git
+        - curl
+  
+  handlers:
+    - name: Restart service
+      service:
+        name: myapp
+        state: restarted
 ```
 
 ---
 
 ## Summary
 
-**Kubernetes** provides:
+**Ansible** provides:
 
-✅ Container orchestration at scale  
-✅ Automated deployment & scaling  
-✅ Self-healing infrastructure  
-✅ Rolling updates & rollbacks  
-✅ Network abstraction (Services)  
-✅ Storage management (Volumes)  
-✅ Configuration management (ConfigMaps, Secrets)  
-✅ Access control (RBAC, Namespaces)  
+✅ **Agentless automation** - SSH-based, simple setup  
+✅ **Declarative configuration** - YAML-based, human-readable  
+✅ **Idempotent operations** - Safe to run repeatedly  
+✅ **Scalable** - Manage hundreds/thousands of servers  
+✅ **Flexible** - Works everywhere: Linux, Windows, cloud, network  
+✅ **Extensible** - Custom modules and plugins  
 
 **Core concepts**:
-- **Cluster**: Control plane + worker nodes
-- **Pods**: Smallest deployable unit
-- **Deployments**: Manage pod replicas
-- **Services**: Network access
-- **Storage**: Persistent data
-- **ConfigMaps/Secrets**: Configuration
+- **Playbooks**: Automation files in YAML
+- **Inventory**: List of target machines
+- **Modules**: Building blocks for tasks
+- **Variables**: Configuration parameters
+- **Handlers**: Triggered actions
+- **Roles**: Reusable automation packages
 
 ---
